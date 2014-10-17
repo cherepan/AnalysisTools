@@ -30,7 +30,9 @@
 #include "NtupleReader.h"
 
 #include "HistoConfig.h"
+#ifdef USE_TauSpinner
 #include "TauSpinerInterface.h"
+#endif
 #include "HistoConfig.h"
 #include "SimpleFits/FitSoftware/interface/PDGInfo.h"
 #include "TauDataFormat/TauNtuple/interface/TauDecay.h"
@@ -41,6 +43,15 @@
 #include "SimpleFits/FitSoftware/interface/MultiProngTauSolver.h"
 #include "SimpleFits/FitSoftware/interface/ErrorMatrixPropagator.h"
 #include "SimpleFits/FitSoftware/interface/TauA1NuConstrainedFitter.h"
+#include "SimpleFits/FitSoftware/interface/DiTauConstrainedFitter.h"
+   
+// small struct needed to allow sorting indices by some value
+struct sortIdxByValue {
+    bool operator()(const std::pair<int,double> &left, const std::pair<int,double> &right) {
+        return left.second > right.second;
+    }
+};
+
 ///////////////////////////////////////////////////////////////////////////////
 //*****************************************************************************
 //*
@@ -103,7 +114,9 @@ class Ntuple_Controller{
   HistoConfig HConfig;
 
   // Interfaces
+#ifdef USE_TauSpinner  
   TauSpinerInterface TauSpinerInt;
+#endif
   HistoConfig HistoC;
 
   // Fit Variables
@@ -121,8 +134,12 @@ class Ntuple_Controller{
   ~Ntuple_Controller() ;
 
   //TauSpiner function
-    double TauSpinerGet(TauSpinerInterface::TauSpinerType SpinType);
-   void TauSpinerSetSignal(int signalcharge){TauSpinerInt.SetTauSignalCharge(signalcharge);}
+  double TauSpinerGet(int SpinType);
+  void TauSpinerSetSignal(int signalcharge){
+#ifdef USE_TauSpinner
+TauSpinerInt.SetTauSignalCharge(signalcharge);
+#endif
+}
    enum beamspot{BS_x0,BS_y0,BS_z0,BS_sigmaZ,BS_dxdz,BS_dydz,BS_BeamWidthX,NBS_par};
    enum TrackQuality {
      undefQuality = -1, loose = 0, tight = 1, highPurity = 2,
@@ -156,15 +173,22 @@ class Ntuple_Controller{
   // Physics Varible Get Functions
   // Event Varibles
   int GetMCID();
-  unsigned int RunNumber(){return Ntp->Event_RunNumber;;}
+  unsigned int RunNumber(){return Ntp->Event_RunNumber;}
   unsigned int EventNumber(){ return Ntp->Event_EventNumber;}
   int BunchCrossing(){ return Ntp->Event_bunchCrossing;}
   int OrbitNumber(){ return Ntp->Event_orbitNumber;}
   unsigned int LuminosityBlock(){return Ntp->Event_luminosityBlock;}
-  int           PileupInfo_NumInteractions_nm1(){Ntp->PileupInfo_NumInteractions_nm1;}
-  int           PileupInfo_NumInteractions_n0(){Ntp->PileupInfo_NumInteractions_n0;}
-  int           PileupInfo_NumInteractions_np1(){Ntp->PileupInfo_NumInteractions_np1;}
-  double        EvtWeight3D(){return Ntp->EvtWeight3D;}
+  float           PileupInfo_TrueNumInteractions_nm1(){return Ntp->PileupInfo_TrueNumInteractions_nm1;}
+  float           PileupInfo_TrueNumInteractions_n0(){return Ntp->PileupInfo_TrueNumInteractions_n0;}
+  float           PileupInfo_TrueNumInteractions_np1(){return Ntp->PileupInfo_TrueNumInteractions_np1;}
+  double        PUWeight(){return Ntp->PUWeight;}
+  double        PUWeight_p5(){return Ntp->PUWeight_p5;}
+  double        PUWeight3D_m5(){return Ntp->PUWeight3D_m5;}
+  double        PUWeight3D(){return Ntp->PUWeight3D;}
+  double        PUWeight3D_p5(){return Ntp->PUWeight3D_p5;}
+  double        PUWeight_m5(){return Ntp->PUWeight_m5;}
+  double		PUWeightFineBins(){return Ntp->PUWeightFineBins;}
+  double        EmbeddedWeight(){return Ntp->EmbeddedWeight;}
 
   TVectorT<double>      beamspot_par(){TVectorT<double> BS(NBS_par);for(unsigned int i=0;i<NBS_par;i++)BS(i)=Ntp->beamspot_par->at(i);return BS;}
 
@@ -192,12 +216,14 @@ class Ntuple_Controller{
   TMatrixF     Vtx_Cov(unsigned int i);
   std::vector<int>  Vtx_Track_idx(unsigned int i){return Ntp->Vtx_Track_idx->at(i);}
   float Vtx_isFake(unsigned int i){return Ntp->Vtx_isFake->at(i);}
-  bool isVtxGood(unsigned int i); 
+  TLorentzVector Vtx_TracksP4(unsigned int i, unsigned int j){return TLorentzVector(Ntp->Vtx_TracksP4->at(i).at(j).at(1),Ntp->Vtx_TracksP4->at(i).at(j).at(2),Ntp->Vtx_TracksP4->at(i).at(j).at(3),Ntp->Vtx_TracksP4->at(i).at(j).at(0));}
 
+  bool isVtxGood(unsigned int i);
+  bool isGoodVtx(unsigned int i);
 
   // Muon information
   unsigned int   NMuons(){return Ntp->Muon_p4->size();}
-  TLorentzVector Muons_p4(unsigned int i){return TLorentzVector(Ntp->Muon_p4->at(i).at(1),Ntp->Muon_p4->at(i).at(2),Ntp->Muon_p4->at(i).at(3),Ntp->Muon_p4->at(i).at(0));}
+  TLorentzVector Muon_p4(unsigned int i, TString corr = "");
   TVector3       Muon_Poca(unsigned int i){return TVector3(Ntp->Muon_Poca->at(i).at(0),Ntp->Muon_Poca->at(i).at(1),Ntp->Muon_Poca->at(i).at(2));}
   bool           Muon_isGlobalMuon(unsigned int i){return Ntp->Muon_isGlobalMuon->at(i);}
   bool           Muon_isStandAloneMuon(unsigned int i){return Ntp->Muon_isStandAloneMuon->at(i);}
@@ -231,9 +257,6 @@ class Ntuple_Controller{
   float          Muon_numberOfMatches(unsigned int i){return Ntp->Muon_numberOfMatches->at(i);}
   int            Muon_numberOfChambers(unsigned int i){return Ntp->Muon_numberOfChambers->at(i);}
   int            Muon_Charge(unsigned int i){return Ntp->Muon_charge->at(i);}
-  bool           isGoodMuon(unsigned int i);
-  bool           isGoodMuon_nooverlapremoval(unsigned int i);
-  float          Muon_RelIso(unsigned int i);
 
   bool           Muon_isPFMuon(unsigned int i){return Ntp->Muon_isPFMuon->at(i);}                                                     
   float          Muon_sumChargedHadronPt03(unsigned int i){return Ntp->Muon_sumChargedHadronPt03->at(i);}                             // sum-pt of charged Hadron					                               
@@ -254,7 +277,7 @@ class Ntuple_Controller{
 
   int            Muon_numberofValidPixelHits(unsigned int i){return Ntp->Muon_numberofValidPixelHits->at(i);}
   int            Muon_trackerLayersWithMeasurement(unsigned int i){return Ntp->Muon_trackerLayersWithMeasurement->at(i);}
-
+  bool isMuonID(unsigned int iMuon);
 
   TrackParticle Muon_TrackParticle(unsigned int i){
     TMatrixT<double>    mu_par(TrackParticle::NHelixPar,1);
@@ -270,10 +293,19 @@ class Ntuple_Controller{
     return TrackParticle(mu_par,mu_cov,Ntp->Muon_pdgid->at(i),Ntp->Muon_M->at(i),Ntp->Muon_charge->at(i),Ntp->Muon_B->at(i));
   }
 
+  bool           isGoodMuon(unsigned int i);
+  bool           isGoodMuon_nooverlapremoval(unsigned int i);
+
+  bool			 isTightMuon(unsigned int i);
+  bool			 isTightMuon(unsigned int i, unsigned int j);
+  bool           isSelectedMuon(unsigned int i, unsigned int j, double impact_xy, double impact_z);
+  bool			 isLooseMuon(unsigned int i);
+  float          Muon_RelIso(unsigned int i);
+
 
   //Base Tau Information (PF)
    unsigned int      NPFTaus(){return Ntp->PFTau_p4->size();}
-   TLorentzVector    PFTau_p4(unsigned int i){return TLorentzVector(Ntp->PFTau_p4->at(i).at(1),Ntp->PFTau_p4->at(i).at(2),Ntp->PFTau_p4->at(i).at(3),Ntp->PFTau_p4->at(i).at(0));}
+   TLorentzVector	 PFTau_p4(unsigned int i, TString corr = "");
    TVector3          PFTau_Poca(unsigned int i){return TVector3(Ntp->PFTau_Poca->at(i).at(0),Ntp->PFTau_Poca->at(i).at(1),Ntp->PFTau_Poca->at(i).at(2));}
    bool PFTau_isTightIsolation(unsigned int i){return Ntp->PFTau_isTightIsolation->at(i);}
    bool PFTau_isMediumIsolation(unsigned int i){return  Ntp->PFTau_isMediumIsolation->at(i);}
@@ -299,6 +331,7 @@ class Ntuple_Controller{
    bool PFTau_HPSPFTauDiscriminationByTightCombinedIsolationDBSumPtCorr3Hits(unsigned int i){return  Ntp->PFTau_HPSPFTauDiscriminationByTightCombinedIsolationDBSumPtCorr3Hits->at(i);}
    bool PFTau_HPSPFTauDiscriminationByMediumCombinedIsolationDBSumPtCorr3Hits(unsigned int i){return  Ntp->PFTau_HPSPFTauDiscriminationByMediumCombinedIsolationDBSumPtCorr3Hits->at(i);}
    bool PFTau_HPSPFTauDiscriminationByLooseCombinedIsolationDBSumPtCorr3Hits(unsigned int i){return  Ntp->PFTau_HPSPFTauDiscriminationByLooseCombinedIsolationDBSumPtCorr3Hits->at(i);}
+   float PFTau_HPSPFTauDiscriminationByRawCombinedIsolationDBSumPtCorr3Hits(unsigned int i){return Ntp->PFTau_HPSPFTauDiscriminationByRawCombinedIsolationDBSumPtCorr3Hits->at(i);}
    bool PFTau_HPSPFTauDiscriminationByLooseIsolationMVA(unsigned int i){return  Ntp->PFTau_HPSPFTauDiscriminationByLooseIsolationMVA->at(i);}
    bool PFTau_HPSPFTauDiscriminationByMediumIsolationMVA(unsigned int i){return  Ntp->PFTau_HPSPFTauDiscriminationByMediumIsolationMVA->at(i);}
    bool PFTau_HPSPFTauDiscriminationByTightIsolationMVA(unsigned int i){return  Ntp->PFTau_HPSPFTauDiscriminationByTightIsolationMVA->at(i);}
@@ -327,31 +360,92 @@ class Ntuple_Controller{
    double   PFTau_FlightLength_significance(unsigned int i){float e=PFTau_FlightLength_error(0); if(e>0) return PFTau_FlightLength(i)/e; return 0;}
    double   PFTau_FlightLength_error(unsigned int i){return PF_Tau_FlightLegth3d_TauFrame_cov(i)(LorentzVectorParticle::vz,LorentzVectorParticle::vz);}
    double   PFTau_FlightLength(unsigned int i){return PFTau_FlightLength3d(i).Mag();}
+   double PFTau_FlightLenght_significance2(TVector3 pv,TMatrixTSym<double> PVcov, TVector3 sv, TMatrixTSym<double> SVcov );
 
-   
-   bool ThreeProngTauFit(unsigned int i, unsigned int j,LorentzVectorParticle &theTau,std::vector<LorentzVectorParticle> &daughter,double &LC_chi2){
-     ndof=0;
-     if(Ntp->PFTau_TIP_secondaryVertex_vtxchi2->at(i).size()==1 &&  
-	Ntp->PFTau_a1_lvp->at(i).size()==LorentzVectorParticle::NLorentzandVertexPar){
+   double GammaForA1Channel();
+   std::vector<TLorentzVector> GetTruthPionsFromA1(int jak, int pdgID);
+   int NPions(unsigned int i){return Ntp->PFTau_PionsP4->at(i).size();}
+   TLorentzVector PFTau_PionsP4(unsigned int i, unsigned int j){return TLorentzVector(Ntp->PFTau_PionsP4->at(i).at(j).at(1),Ntp->PFTau_PionsP4->at(i).at(j).at(2),Ntp->PFTau_PionsP4->at(i).at(j).at(3),Ntp->PFTau_PionsP4->at(i).at(j).at(0) );}
+   double PFTau_PionsCharge(unsigned int i, unsigned int j){return Ntp->PFTau_PionsCharge->at(i).at(j);}
+
+   bool ThreeProngTauFit(unsigned int i, unsigned int j,LorentzVectorParticle &theTau,std::vector<LorentzVectorParticle> &daughter,double &LC_chi2, double &phisign){
+     if(Ntp->PFTau_TIP_secondaryVertex_vtxchi2->at(i).size()==1 && Ntp->PFTau_a1_lvp->at(i).size()==LorentzVectorParticle::NLorentzandVertexPar){
        // Tau Solver
        TVector3 pv=PFTau_TIP_primaryVertex_pos(i);
        TMatrixTSym<double> pvcov=PFTau_TIP_primaryVertex_cov(i);
        LorentzVectorParticle a1=PFTau_a1_lvp(i);
        TauA1NuConstrainedFitter TauA1NU(j,a1,pv,pvcov);
-       TauA1NU.SetMaxDelta(0.01);
-       TauA1NU.SetNIterMax(1000);
+       bool fitStatus= TauA1NU.Fit();
+       if(fitStatus){
+	 phisign =TauA1NU.GetTauRotationSignificance();
 
-	 bool fitStatus= TauA1NU.Fit();
-       if(fitStatus && TauA1NU.isConverged()){
+
 	 theTau=TauA1NU.GetMother();
+	 //	 std::cout<<" theTau.Px()   "<< theTau.LV().Px() <<"   " <<" theTau.Py()   "<< theTau.LV().Py() <<"   " <<" theTau.Pz()   "<< theTau.LV().Pz() <<"   " <<std::endl;
+
+
 	 daughter=TauA1NU.GetReFitDaughters();
-	 LC_chi2=TauA1NU.ChiSquare();
-	 return  true;
+	 return true;
        }
      }
      return false;
    }
-   
+
+
+
+/*    bool ThreeProngTauFit(unsigned int i, unsigned int j,LorentzVectorParticle &theTau,std::vector<LorentzVectorParticle> &daughter,double &LC_chi2){ */
+/*      if(Ntp->PFTau_TIP_secondaryVertex_vtxchi2->at(i).size()==1 && Ntp->PFTau_a1_lvp->at(i).size()==LorentzVectorParticle::NLorentzandVertexPar){ */
+/*        // Tau Solver */
+/*        TVector3 pv=PFTau_TIP_primaryVertex_pos(i); */
+/*        TMatrixTSym<double> pvcov=PFTau_TIP_primaryVertex_cov(i); */
+/*        LorentzVectorParticle a1=PFTau_a1_lvp(i); */
+/*        TauA1NuConstrainedFitter TauA1NU(j,a1,pv,pvcov); */
+/*        bool fitStatus= TauA1NU.Fit(); */
+/*        if(fitStatus){ */
+/* 	 theTau=TauA1NU.GetMother(); */
+/* 	 daughter=TauA1NU.GetReFitDaughters(); */
+/* 	 return  true; */
+/*        } */
+/*      } */
+/*      return false; */
+/*    } */
+       bool EventFit(unsigned int i, unsigned int MuonIndex, LorentzVectorParticle TauA1, LorentzVectorParticle &theZ,std::vector<LorentzVectorParticle> &Daughters,double &LC_chi2, int &Niterat, double &csum){ 
+      TrackParticle Muon = Muon_TrackParticle(MuonIndex); 
+      TLorentzVector MuonLV = TLorentzVector(Ntp->Muon_p4->at(MuonIndex).at(1),Ntp->Muon_p4->at(MuonIndex).at(2),Ntp->Muon_p4->at(MuonIndex).at(3),Ntp->Muon_p4->at(MuonIndex).at(0)); 
+     
+      if(Ntp->PFTau_TIP_secondaryVertex_vtxchi2->at(i).size()==1 &&   
+ 	Ntp->PFTau_a1_lvp->at(i).size()==LorentzVectorParticle::NLorentzandVertexPar){ 
+        // Tau Solver 
+        TVector3 pv=PFTau_TIP_primaryVertex_pos(i); 
+        TMatrixTSym<double> pvcov=PFTau_TIP_primaryVertex_cov(i); 
+        TVector3 MuonPoca(Ntp->Muon_Poca->at(MuonIndex).at(0),Ntp->Muon_Poca->at(MuonIndex).at(1),Ntp->Muon_Poca->at(MuonIndex).at(2)); 
+
+        DiTauConstrainedFitter Z2Tau(TauA1,Muon, pv,pvcov); 
+
+        Z2Tau.SetMaxDelta(0.5); 
+        Z2Tau.SetNIterMax(1000); 
+        Z2Tau.SetEpsilon(0.001); 
+
+        bool fitStatus= Z2Tau.Fit(); 
+        if(fitStatus && Z2Tau.isConverged()){ 
+ 	 Daughters = Z2Tau.GetReFitDaughters(); 
+ 	 LorentzVectorParticle TZ=Z2Tau.GetMother(); 
+ 	 theZ = Z2Tau.GetMother(); 
+ 	 LorentzVectorParticle TauMuInitialEstimate =Z2Tau.GetTauMuEstimate(); 
+
+
+ 	 daughter=Z2Tau.GetReFitDaughters(); 
+ 	 LC_chi2=Z2Tau.ChiSquare(); 
+ 	 Niterat = Z2Tau.NIter(); 
+ 	 csum = Z2Tau.CSum(); 
+
+ 	 return  true; 
+        } 
+      } 
+      return false; 
+    } 
+   bool AmbiguitySolver(std::vector<bool> A1Fit, std::vector<bool> EventFit, std::vector<double> Probs,   int &IndexToReturn, bool &AmbuguityPoint);
+
    ////////////////////////////////////////////////
    // wrapper for backwards compatibility to KFit do not use in new code!!!
    int NKFTau(){return NPFTaus();}
@@ -361,52 +455,52 @@ class Ntuple_Controller{
      return false;
    }
 
-   bool KFTau_discriminatorByKFit(unsigned int i, unsigned int j=0){
-     LorentzVectorParticle theTau;
-     std::vector<LorentzVectorParticle> daughter;
-     double LC_chi2;
-     return ThreeProngTauFit(i,j,theTau,daughter,LC_chi2);
-   }
+/*    bool KFTau_discriminatorByKFit(unsigned int i, unsigned int j=0){ */
+/*      LorentzVectorParticle theTau; */
+/*      std::vector<LorentzVectorParticle> daughter; */
+/*      double LC_chi2; */
+/*      return ThreeProngTauFit(i,j,theTau,daughter,LC_chi2); */
+/*    } */
 
-   TLorentzVector KFTau_TauFit_p4(unsigned int i, unsigned int j=0){
-     LorentzVectorParticle theTau;
-     std::vector<LorentzVectorParticle> daughter;
-     double LC_chi2;
-     if(ThreeProngTauFit(i,j,theTau,daughter,LC_chi2))return theTau.LV();return TLorentzVector(0,0,0,0);
-   }
+/*    TLorentzVector KFTau_TauFit_p4(unsigned int i, unsigned int j=0){ */
+/*      LorentzVectorParticle theTau; */
+/*      std::vector<LorentzVectorParticle> daughter; */
+/*      double LC_chi2; */
+/*      if(ThreeProngTauFit(i,j,theTau,daughter,LC_chi2))return theTau.LV();return TLorentzVector(0,0,0,0); */
+/*    } */
    int KFTau_MatchedHPS_idx(unsigned int i){return i;}
-   bool isGoodKFTau(unsigned int i,unsigned int j=0){
-     LorentzVectorParticle theTau;
-     std::vector<LorentzVectorParticle> daughter;
-     double LC_chi2;
-     if(ThreeProngTauFit(i,j,theTau,daughter,LC_chi2)){
-       if(KFTau_discriminatorByQC(i,j)){
-	 if(PFTau_hpsDecayMode(KFTau_MatchedHPS_idx(i)) == 10 && PFTau_isHPSByDecayModeFinding(i)){
-	   if(PFTau_isVLooseIsolationDBSumPtCorr(KFTau_MatchedHPS_idx(i))){
-	     return true;
-	   }
-	 }
-       }
-     }
-     return false;
-   }
+/*    bool isGoodKFTau(unsigned int i,unsigned int j=0){ */
+/*      LorentzVectorParticle theTau; */
+/*      std::vector<LorentzVectorParticle> daughter; */
+/*      double LC_chi2; */
+/*      if(ThreeProngTauFit(i,j,theTau,daughter,LC_chi2)){ */
+/*        if(KFTau_discriminatorByQC(i,j)){ */
+/* 	 if(PFTau_hpsDecayMode(KFTau_MatchedHPS_idx(i)) == 10 && PFTau_isHPSByDecayModeFinding(i)){ */
+/* 	   if(PFTau_isVLooseIsolationDBSumPtCorr(KFTau_MatchedHPS_idx(i))){ */
+/* 	     return true; */
+/* 	   } */
+/* 	 } */
+/*        } */
+/*      } */
+/*      return false; */
+/*    } */
    
-   TLorentzVector   KFTau_TauVis_p4(unsigned int i,unsigned int j=0){return PFTau_a1_lvp(i).LV();}
-   TLorentzVector   KFTau_Neutrino_p4(unsigned int i,unsigned int j=0){return (KFTau_TauFit_p4(i,j)-PFTau_a1_lvp(i).LV());}
+/*    TLorentzVector   KFTau_TauVis_p4(unsigned int i,unsigned int j=0){return PFTau_a1_lvp(i).LV();} */
+/*    TLorentzVector   KFTau_Neutrino_p4(unsigned int i,unsigned int j=0){return (KFTau_TauFit_p4(i,j)-PFTau_a1_lvp(i).LV());} */
    int      KFTau_nKinTaus(){return NKFTau();}
    int      KFTau_indexOfFitInfo(unsigned int i){return i;}
    TVector3 KFTau_Fit_TauPrimVtx(unsigned int i){return PFTau_TIP_primaryVertex_pos(i);}
    float    KFTau_Fit_ndf(unsigned int i,unsigned int j=0){return PFTau_TIP_secondaryVertex_vtxndof(i);}
-   float    KFTau_Fit_chi2(unsigned int i,unsigned int j=0){
-     LorentzVectorParticle theTau;
-     std::vector<LorentzVectorParticle> daughter;
-     double LC_chi2;
-     if(ThreeProngTauFit(i,j,theTau,daughter,LC_chi2)){
-       return PFTau_TIP_secondaryVertex_vtxchi2(i)+LC_chi2;
-     }
-     return 999;
-   }
-   float    KFTau_Fit_Chi2Prob(unsigned int i,unsigned int j=0){return TMath::Prob(KFTau_Fit_chi2(i,j),(int)KFTau_Fit_ndf(i,j));}
+/*    float    KFTau_Fit_chi2(unsigned int i,unsigned int j=0){ */
+/*      LorentzVectorParticle theTau; */
+/*      std::vector<LorentzVectorParticle> daughter; */
+/*      double LC_chi2; */
+/*      if(ThreeProngTauFit(i,j,theTau,daughter,LC_chi2)){ */
+/*        return PFTau_TIP_secondaryVertex_vtxchi2(i)+LC_chi2; */
+/*      }  */
+/*      return 999; */
+/*    } */
+//   float    KFTau_Fit_Chi2Prob(unsigned int i,unsigned int j=0){return TMath::Prob(KFTau_Fit_chi2(i,j),(int)KFTau_Fit_ndf(i,j));}
    int      KFTau_Fit_charge(unsigned int i){if(Ntp->PFTau_a1_charge->at(i).size()>0) return Ntp->PFTau_a1_charge->at(i).at(0); return 0;}
    int      KFTau_Fit_csum(unsigned int i,unsigned int j=0){return 0;}
    int      KFTau_Fit_iterations(unsigned int i, unsigned int j=0){return 0;}
@@ -422,8 +516,7 @@ class Ntuple_Controller{
 
       // Jet Information
    unsigned int       NPFJets(){return Ntp->PFJet_p4->size();}
-   TLorentzVector     PFJet_p4(unsigned int i){return TLorentzVector(Ntp->PFJet_p4->at(i).at(1),Ntp->PFJet_p4->at(i).at(2),Ntp->PFJet_p4->at(i).at(3),Ntp->PFJet_p4->at(i).at(0));}
-   TVector3           PFJet_Poca(unsigned int i){return TVector3(Ntp->PFJet_Poca->at(i).at(0),Ntp->PFJet_Poca->at(i).at(1),Ntp->PFJet_Poca->at(i).at(2));}
+   TLorentzVector     PFJet_p4(unsigned int i, TString corr = "");
    float              PFJet_chargedEmEnergy(unsigned int i){return Ntp->PFJet_chargedEmEnergy->at(i);}
    float              PFJet_chargedHadronEnergy(unsigned int i){return Ntp->PFJet_chargedHadronEnergy->at(i);}
    float              PFJet_chargedHadronMultiplicity(unsigned int i){return Ntp->PFJet_chargedHadronMultiplicity->at(i);}
@@ -449,7 +542,7 @@ class Ntuple_Controller{
    float              PFJet_etaetaMoment(unsigned int i){return Ntp->PFJet_etaetaMoment->at(i);}
    float              PFJet_etaphiMoment(unsigned int i){return Ntp->PFJet_etaphiMoment->at(i);}
    std::vector<int>   PFJet_Track_idx(unsigned int i){return Ntp->PFJet_Track_idx->at(i);}
-   unsigned int       PFJet_MatchedHPS_idx(unsigned int i){return Ntp->PFJet_MatchedHPS_idx->at(i);}
+   int                PFJet_MatchedHPS_idx(unsigned int i){return Ntp->PFJet_MatchedHPS_idx->at(i);}
    int                PFJet_numberOfDaughters(unsigned int i){return Ntp->PFJet_numberOfDaughters->at(i);}
    float              PFJet_chargedEmEnergyFraction(unsigned int i){return Ntp->PFJet_chargedEmEnergyFraction->at(i);}
    float              PFJet_chargedHadronEnergyFraction(unsigned int i){return Ntp->PFJet_chargedHadronEnergyFraction->at(i);}
@@ -458,14 +551,113 @@ class Ntuple_Controller{
    bool               isGoodJet(unsigned int i);
    bool               isGoodJet_nooverlapremoval(unsigned int i);
    bool               isJetID(unsigned int i);
- 
+   float              PFJet_nTrk(unsigned int i){return Ntp->PFJet_nTrk->at(i);}
+   TLorentzVector     PFJet_TracksP4(unsigned int i, unsigned int j){return TLorentzVector(Ntp->PFJet_TracksP4->at(i).at(j).at(1),Ntp->PFJet_TracksP4->at(i).at(j).at(2),Ntp->PFJet_TracksP4->at(i).at(j).at(3),Ntp->PFJet_TracksP4->at(i).at(j).at(0));}
+   int                PFJet_nTracks(unsigned int i){return Ntp->PFJet_TracksP4->at(i).size();}
+   float			  PFJet_JECuncertainty(unsigned int i){return Ntp->PFJet_JECuncertainty->at(i);}
+
+   float              PFJet_PUJetID_discr(unsigned int i){return Ntp->PFJet_PUJetID_discr->at(i);}
+   float              PFJet_PUJetID_looseWP(unsigned int i){return Ntp->PFJet_PUJetID_looseWP->at(i);}
+   float              PFJet_PUJetID_mediumWP(unsigned int i){return Ntp->PFJet_PUJetID_mediumWP->at(i);}
+   float              PFJet_PUJetID_tightWP(unsigned int i){return Ntp->PFJet_PUJetID_tightWP->at(i);}
+
+   float              PFJet_partonFlavour(unsigned int i){return Ntp->PFJet_partonFlavour->at(i);}
+   float              PFJet_bDiscriminator(unsigned int i){return Ntp->PFJet_bDiscriminator->at(i);}
+   //float              PFJet_BTagWeight(unsigned int i){return Ntp->PFJet_BTagWeight->at(i);} // not implemented at the moment
+
+   double 			  rundependentJetPtCorrection(double jeteta, int runnumber);
 
    //MET information
-   double             MET_et(){return Ntp->MET_et;}
-   double             MET_phi(){return Ntp->MET_phi;}
-   double             MET_sumET(){return Ntp->MET_sumET;}
-   double             MET_ex(){return Ntp->MET_et*cos(Ntp->MET_phi);}
-   double             MET_ey(){return Ntp->MET_et*sin(Ntp->MET_phi);}
+   float              MET_Uncorr_et(){return Ntp->MET_Uncorr_et;}
+   float              MET_Uncorr_phi(){return Ntp->MET_Uncorr_phi;}
+   float              MET_Uncorr_ex(){return Ntp->MET_Uncorr_et*cos(Ntp->MET_Uncorr_phi);}
+   float              MET_Uncorr_ey(){return Ntp->MET_Uncorr_et*sin(Ntp->MET_Uncorr_phi);}
+   float              MET_Uncorr_significance(){return Ntp->MET_Uncorr_significance;}
+   float              MET_Uncorr_significance_xx(){return Ntp->MET_Uncorr_significance_xx;}
+   float              MET_Uncorr_significance_xy(){return Ntp->MET_Uncorr_significance_xy;}
+   float              MET_Uncorr_significance_yy(){return Ntp->MET_Uncorr_significance_yy;}
+
+   float              MET_CorrT0rt_et(){return Ntp->MET_CorrT0rt_et;}
+   float              MET_CorrT0rt_phi(){return Ntp->MET_CorrT0rt_phi;}
+   float              MET_CorrT0rt_ex(){return Ntp->MET_CorrT0rt_et*cos(Ntp->MET_CorrT0rt_phi);}
+   float              MET_CorrT0rt_ey(){return Ntp->MET_CorrT0rt_et*sin(Ntp->MET_CorrT0rt_phi);}
+   float              MET_CorrT0rtT1_et(){return Ntp->MET_CorrT0rtT1_et;}
+   float              MET_CorrT0rtT1_phi(){return Ntp->MET_CorrT0rtT1_phi;}
+   float              MET_CorrT0rtT1_ex(){return Ntp->MET_CorrT0rtT1_et*cos(Ntp->MET_CorrT0rtT1_phi);}
+   float              MET_CorrT0rtT1_ey(){return Ntp->MET_CorrT0rtT1_et*sin(Ntp->MET_CorrT0rtT1_phi);}
+   float              MET_CorrT0pc_et(){return Ntp->MET_CorrT0pc_et;}
+   float              MET_CorrT0pc_phi(){return Ntp->MET_CorrT0pc_phi;}
+   float              MET_CorrT0pc_ex(){return Ntp->MET_CorrT0pc_et*cos(Ntp->MET_CorrT0pc_phi);}
+   float              MET_CorrT0pc_ey(){return Ntp->MET_CorrT0pc_et*sin(Ntp->MET_CorrT0pc_phi);}
+   float              MET_CorrT0pcT1_et(){return Ntp->MET_CorrT0pcT1_et;}
+   float              MET_CorrT0pcT1_phi(){return Ntp->MET_CorrT0pcT1_phi;}
+   float              MET_CorrT0pcT1_ex(){return Ntp->MET_CorrT0pcT1_et*cos(Ntp->MET_CorrT0pcT1_phi);}
+   float              MET_CorrT0pcT1_ey(){return Ntp->MET_CorrT0pcT1_et*sin(Ntp->MET_CorrT0pcT1_phi);}
+   float              MET_CorrT0rtTxy_et(){return Ntp->MET_CorrT0rtTxy_et;}
+   float              MET_CorrT0rtTxy_phi(){return Ntp->MET_CorrT0rtTxy_phi;}
+   float              MET_CorrT0rtTxy_ex(){return Ntp->MET_CorrT0rtTxy_et*cos(Ntp->MET_CorrT0rtTxy_phi);}
+   float              MET_CorrT0rtTxy_ey(){return Ntp->MET_CorrT0rtTxy_et*sin(Ntp->MET_CorrT0rtTxy_phi);}
+   float              MET_CorrT0rtT1Txy_et(){return Ntp->MET_CorrT0rtT1Txy_et;}
+   float              MET_CorrT0rtT1Txy_phi(){return Ntp->MET_CorrT0rtT1Txy_phi;}
+   float              MET_CorrT0rtT1Txy_ex(){return Ntp->MET_CorrT0rtT1Txy_et*cos(Ntp->MET_CorrT0rtT1Txy_phi);}
+   float              MET_CorrT0rtT1Txy_ey(){return Ntp->MET_CorrT0rtT1Txy_et*sin(Ntp->MET_CorrT0rtT1Txy_phi);}
+   float              MET_CorrT0pcTxy_et(){return Ntp->MET_CorrT0pcTxy_et;}
+   float              MET_CorrT0pcTxy_phi(){return Ntp->MET_CorrT0pcTxy_phi;}
+   float              MET_CorrT0pcTxy_ex(){return Ntp->MET_CorrT0pcTxy_et*cos(Ntp->MET_CorrT0pcTxy_phi);}
+   float              MET_CorrT0pcTxy_ey(){return Ntp->MET_CorrT0pcTxy_et*sin(Ntp->MET_CorrT0pcTxy_phi);}
+   float              MET_CorrT0pcT1Txy_et(){return Ntp->MET_CorrT0pcT1Txy_et;}
+   float              MET_CorrT0pcT1Txy_phi(){return Ntp->MET_CorrT0pcT1Txy_phi;}
+   float              MET_CorrT0pcT1Txy_ex(){return Ntp->MET_CorrT0pcT1Txy_et*cos(Ntp->MET_CorrT0pcT1Txy_phi);}
+   float              MET_CorrT0pcT1Txy_ey(){return Ntp->MET_CorrT0pcT1Txy_et*sin(Ntp->MET_CorrT0pcT1Txy_phi);}
+   float              MET_CorrT1_et(){return Ntp->MET_CorrT1_et;}
+   float              MET_CorrT1_phi(){return Ntp->MET_CorrT1_phi;}
+   float              MET_CorrT1_ex(){return Ntp->MET_CorrT1_et*cos(Ntp->MET_CorrT1_phi);}
+   float              MET_CorrT1_ey(){return Ntp->MET_CorrT1_et*sin(Ntp->MET_CorrT1_phi);}
+   float              MET_CorrT1Txy_et(){return Ntp->MET_CorrT1Txy_et;}
+   float              MET_CorrT1Txy_phi(){return Ntp->MET_CorrT1Txy_phi;}
+   float              MET_CorrT1Txy_ex(){return Ntp->MET_CorrT1Txy_et*cos(Ntp->MET_CorrT1Txy_phi);}
+   float              MET_CorrT1Txy_ey(){return Ntp->MET_CorrT1Txy_et*sin(Ntp->MET_CorrT1Txy_phi);}
+   float              MET_CorrCaloT1_et(){return Ntp->MET_CorrCaloT1_et;}
+   float              MET_CorrCaloT1_phi(){return Ntp->MET_CorrCaloT1_phi;}
+   float              MET_CorrCaloT1_ex(){return Ntp->MET_CorrCaloT1_et*cos(Ntp->MET_CorrCaloT1_phi);}
+   float              MET_CorrCaloT1_ey(){return Ntp->MET_CorrCaloT1_et*sin(Ntp->MET_CorrCaloT1_phi);}
+   float              MET_CorrCaloT1T2_et(){return Ntp->MET_CorrCaloT1T2_et;}
+   float              MET_CorrCaloT1T2_phi(){return Ntp->MET_CorrCaloT1T2_phi;}
+   float              MET_CorrCaloT1T2_ex(){return Ntp->MET_CorrCaloT1T2_et*cos(Ntp->MET_CorrCaloT1T2_phi);}
+   float              MET_CorrCaloT1T2_ey(){return Ntp->MET_CorrCaloT1T2_et*sin(Ntp->MET_CorrCaloT1T2_phi);}
+
+   float              MET_CorrMVA_et(){return Ntp->MET_CorrMVA_et;}
+   float              MET_CorrMVA_phi(){return Ntp->MET_CorrMVA_phi;}
+   float              MET_CorrMVA_ex(){return Ntp->MET_CorrMVA_et*cos(Ntp->MET_CorrMVA_phi);}
+   float              MET_CorrMVA_ey(){return Ntp->MET_CorrMVA_et*sin(Ntp->MET_CorrMVA_phi);}
+   float              MET_CorrMVA_significance(){return Ntp->MET_CorrMVA_significance;}
+   float              MET_CorrMVA_significance_xx(){return Ntp->MET_CorrMVA_significance_xx;}
+   float              MET_CorrMVA_significance_xy(){return Ntp->MET_CorrMVA_significance_xy;}
+   float              MET_CorrMVA_significance_yy(){return Ntp->MET_CorrMVA_significance_yy;}
+   unsigned int   	  NMET_CorrMVA_srcMuons(){return Ntp->MET_CorrMVA_srcMuon_p4->size();}
+   TLorentzVector     MET_CorrMVA_srcMuon_p4(unsigned int i){return TLorentzVector(Ntp->MET_CorrMVA_srcMuon_p4->at(i).at(1),Ntp->MET_CorrMVA_srcMuon_p4->at(i).at(2),Ntp->MET_CorrMVA_srcMuon_p4->at(i).at(3),Ntp->MET_CorrMVA_srcMuon_p4->at(i).at(0));}
+   bool				  findCorrMVASrcMuon(unsigned int muon_idx, int &mvaSrcMuon_idx, float &dR );
+   unsigned int   	  NMET_CorrMVA_srcElectrons(){return Ntp->MET_CorrMVA_srcElectron_p4->size();}
+   TLorentzVector     MET_CorrMVA_srcElectron_p4(unsigned int i){return TLorentzVector(Ntp->MET_CorrMVA_srcElectron_p4->at(i).at(1),Ntp->MET_CorrMVA_srcElectron_p4->at(i).at(2),Ntp->MET_CorrMVA_srcElectron_p4->at(i).at(3),Ntp->MET_CorrMVA_srcElectron_p4->at(i).at(0));}
+   bool				  findCorrMVASrcElectron(unsigned int elec_idx, int &mvaSrcElectron_idx, float &dR );
+   unsigned int   	  NMET_CorrMVA_srcTaus(){return Ntp->MET_CorrMVA_srcTau_p4->size();}
+   TLorentzVector     MET_CorrMVA_srcTau_p4(unsigned int i){return TLorentzVector(Ntp->MET_CorrMVA_srcTau_p4->at(i).at(1),Ntp->MET_CorrMVA_srcTau_p4->at(i).at(2),Ntp->MET_CorrMVA_srcTau_p4->at(i).at(3),Ntp->MET_CorrMVA_srcTau_p4->at(i).at(0));}
+   bool				  findCorrMVASrcTau(unsigned int tau_idx, int &mvaSrcTau_idx, float &dR );
+
+   float              MET_CorrMVAMuTau_et(){return Ntp->MET_CorrMVAMuTau_et;}
+   float              MET_CorrMVAMuTau_phi(){return Ntp->MET_CorrMVAMuTau_phi;}
+   float              MET_CorrMVAMuTau_ex(){return Ntp->MET_CorrMVAMuTau_et*cos(Ntp->MET_CorrMVAMuTau_phi);}
+   float              MET_CorrMVAMuTau_ey(){return Ntp->MET_CorrMVAMuTau_et*sin(Ntp->MET_CorrMVAMuTau_phi);}
+   float              MET_CorrMVAMuTau_significance(){return Ntp->MET_CorrMVAMuTau_significance;}
+   float              MET_CorrMVAMuTau_significance_xx(){return Ntp->MET_CorrMVAMuTau_significance_xx;}
+   float              MET_CorrMVAMuTau_significance_xy(){return Ntp->MET_CorrMVAMuTau_significance_xy;}
+   float              MET_CorrMVAMuTau_significance_yy(){return Ntp->MET_CorrMVAMuTau_significance_yy;}
+   unsigned int   	  NMET_CorrMVAMuTau_srcMuons(){return Ntp->MET_CorrMVAMuTau_srcMuon_p4->size();}
+   TLorentzVector     MET_CorrMVAMuTau_srcMuon_p4(unsigned int i){return TLorentzVector(Ntp->MET_CorrMVAMuTau_srcMuon_p4->at(i).at(1),Ntp->MET_CorrMVAMuTau_srcMuon_p4->at(i).at(2),Ntp->MET_CorrMVAMuTau_srcMuon_p4->at(i).at(3),Ntp->MET_CorrMVAMuTau_srcMuon_p4->at(i).at(0));}
+   bool				  findCorrMVAMuTauSrcMuon(unsigned int muon_idx, int &mvaMuTauSrcMuon_idx, float &dR );
+   unsigned int   	  NMET_CorrMVAMuTau_srcTaus(){return Ntp->MET_CorrMVAMuTau_srcTau_p4->size();}
+   TLorentzVector     MET_CorrMVAMuTau_srcTau_p4(unsigned int i){return TLorentzVector(Ntp->MET_CorrMVAMuTau_srcTau_p4->at(i).at(1),Ntp->MET_CorrMVAMuTau_srcTau_p4->at(i).at(2),Ntp->MET_CorrMVAMuTau_srcTau_p4->at(i).at(3),Ntp->MET_CorrMVAMuTau_srcTau_p4->at(i).at(0));}
+   bool				  findCorrMVAMuTauSrcTau(unsigned int tau_idx, int &mvaMuTauSrcTau_idx, float &dR );
 
    //Track Information
    unsigned int      NTracks(){return Ntp->Track_p4->size();}
@@ -500,6 +692,14 @@ class Ntuple_Controller{
    int                        MCSignalParticle_charge(unsigned int i){return Ntp->MCSignalParticle_charge->at(i);}
    TVector3                   MCSignalParticle_Poca(unsigned int i){return TVector3(Ntp->MCSignalParticle_Poca->at(i).at(0),Ntp->MCSignalParticle_Poca->at(i).at(1),Ntp->MCSignalParticle_Poca->at(i).at(2));}
    std::vector<unsigned int>  MCSignalParticle_Tauidx(unsigned int i){return Ntp->MCSignalParticle_Tauidx->at(i);}
+   unsigned int               NMCParticles(){return Ntp->MC_p4->size();}
+   TLorentzVector             MCParticle_p4(unsigned int i){return TLorentzVector(Ntp->MC_p4->at(i).at(1),Ntp->MC_p4->at(i).at(2),Ntp->MC_p4->at(i).at(3),Ntp->MC_p4->at(i).at(0));}
+   int                        MCParticle_pdgid(unsigned int i){return Ntp->MC_pdgid->at(i);}
+   int                        MCParticle_charge(unsigned int i){return Ntp->MC_charge->at(i);}
+   int                        MCParticle_midx(unsigned int i){return Ntp->MC_midx->at(i);}
+   std::vector<int>           MCParticle_childpdgid(unsigned int i){return Ntp->MC_childpdgid->at(i);}
+   int						  matchTruth(TLorentzVector tvector);
+   bool						  matchTruth(TLorentzVector tvector, int pid, double dr);
 
    // Tau decays (Tau is first element of vector)
    int NMCTaus(){return Ntp->MCTauandProd_p4->size();}
@@ -524,12 +724,17 @@ class Ntuple_Controller{
    bool muonhasJetOverlap(unsigned int muon_idx,unsigned int &jet_idx);
    bool muonhasJetMatch(unsigned int muon_idx,unsigned int &jet_idx);
 
+   TLorentzVector  GetTruthTauLV(int jak);
+   TLorentzVector  GetTruthTauProductLV(int jak, int pdgID);
+   TVector3 GetTruthTauProductVertex(int jak, int pdgID);
+   bool         CheckDecayID(int jak1, int jak2);
+
 
    // Electrons
    unsigned int       NElectrons(){return Ntp->Electron_p4->size();}
-   TLorentzVector     Electron_p4(unsigned int i){return TLorentzVector(Ntp->Electron_p4->at(i).at(1),Ntp->Electron_p4->at(i).at(2),Ntp->Electron_p4->at(i).at(3),Ntp->Electron_p4->at(i).at(0));}
+   TLorentzVector	  Electron_p4(unsigned int i, TString corr = "");
    TVector3           Electron_Poca(unsigned int i){return TVector3(Ntp->Electron_Poca->at(i).at(0),Ntp->Electron_Poca->at(i).at(1),Ntp->Electron_Poca->at(i).at(2));}
-   float   Electron_Charge(unsigned int i){return Ntp->Electron_charge->at(i);}
+   int   Electron_Charge(unsigned int i){return Ntp->Electron_charge->at(i);}
    float   Electron_Gsf_deltaEtaEleClusterTrackAtCalo(unsigned int i){return Ntp->Electron_Gsf_deltaEtaEleClusterTrackAtCalo->at(i);}
    float   Electron_Gsf_deltaEtaSeedClusterTrackAtCalo(unsigned int i){return Ntp->Electron_Gsf_deltaEtaSeedClusterTrackAtCalo->at(i);}
    float   Electron_Gsf_deltaEtaSuperClusterTrackAtVtx(unsigned int i){return Ntp->Electron_Gsf_deltaEtaSuperClusterTrackAtVtx->at(i);}
@@ -581,6 +786,14 @@ class Ntuple_Controller{
    float    Electron_numberOfMissedHits(unsigned int i){return Ntp->Electron_numberOfMissedHits->at(i);}
    bool     Electron_HasMatchedConversions(unsigned int i){return Ntp->Electron_HasMatchedConversions->at(i);}
 
+   float    Electron_MVA_Trig_discriminator(unsigned int i){return Ntp->Electron_MVA_Trig_discriminator->at(i);}
+   float    Electron_MVA_TrigNoIP_discriminator(unsigned int i){return Ntp->Electron_MVA_TrigNoIP_discriminator->at(i);}
+   float    Electron_MVA_NonTrig_discriminator(unsigned int i){return Ntp->Electron_MVA_NonTrig_discriminator->at(i);}
+   float    RhoIsolationAllInputTags(){return Ntp->RhoIsolationAllInputTags;}
+
+   float	Electron_RegEnergy(unsigned int i){return Ntp->Electron_RegEnergy->at(i);}
+   float	Electron_RegEnergyError(unsigned int i){return Ntp->Electron_RegEnergyError->at(i);}
+
    TrackParticle Electron_TrackParticle(unsigned int i){
      TMatrixT<double>    e_par(TrackParticle::NHelixPar,1);
      TMatrixTSym<double> e_cov(TrackParticle::NHelixPar);
@@ -595,11 +808,27 @@ class Ntuple_Controller{
      return TrackParticle(e_par,e_cov,Ntp->Electron_pdgid->at(i),Ntp->Electron_M->at(i),Ntp->Electron_charge->at(i),Ntp->Electron_B->at(i));
    }
 
+   bool isTrigPreselElectron(unsigned int i);
+   bool isTrigNoIPPreselElectron(unsigned int i);
+   bool isMVATrigElectron(unsigned int i);
+   bool isMVATrigNoIPElectron(unsigned int i);
+   bool isMVANonTrigElectron(unsigned int i, unsigned int j);
+   bool isTightElectron(unsigned int i);
+   bool isTightElectron(unsigned int i, unsigned int j);
+   float Electron_RelIso03(unsigned int i);
+   float Electron_RelIso04(unsigned int i);
+   float Electron_Aeff_R04(double Eta);
+   float Electron_Aeff_R03(double Eta);
+   bool isSelectedElectron(unsigned int i, unsigned int j, double impact_xy, double impact_z);
+
    // Trigger
    bool         TriggerAccept(TString n);
    unsigned int HLTPrescale(TString n);
    unsigned int L1SEEDPrescale(TString n);
    bool         GetTriggerIndex(TString n, unsigned int &i);
+   double 		matchTrigger(unsigned int i_obj, std::vector<TString> trigger, std::string objectType);
+   bool 		matchTrigger(unsigned int i_obj, double dr_cut, std::vector<TString> trigger, std::string objectType);
+   bool			matchTrigger(unsigned int i_obj, double dr_cut, TString trigger, std::string objectType);
    unsigned int NHLTTriggers(){return Ntp->HTLTriggerName->size();}
    std::string  HTLTriggerName(unsigned int i){return Ntp->HTLTriggerName->at(i);}
    bool         TriggerAccept(unsigned int i){return Ntp->TriggerAccept->at(i);}
@@ -609,17 +838,31 @@ class Ntuple_Controller{
    unsigned int NHLTL1GTSeeds(unsigned int i){return Ntp->NHLTL1GTSeeds->at(i);}
    unsigned int L1SEEDPrescale(unsigned int i){return Ntp->L1SEEDPrescale->at(i);}
    bool         L1SEEDInvalidPrescale(unsigned int i){return Ntp->L1SEEDInvalidPrescale->at(i);}
-   float        MuonTriggerMatch(unsigned int i, unsigned int j){if(j<Ntp->MuonTriggerMatch->at(i).size()) return Ntp->MuonTriggerMatch->at(i).at(j); return 999;}
-   float        ElectronTriggerMatch(unsigned int i, unsigned int j){if(j<Ntp->ElectronTriggerMatch->at(i).size()) return Ntp->ElectronTriggerMatch->at(i).at(j);return 999;}
-   float        JetTriggerMatch(unsigned int i, unsigned int j){if(j<Ntp->JetTriggerMatch->at(i).size()) return Ntp->JetTriggerMatch->at(i).at(j);return 999;}
-   float        TauTriggerMatch(unsigned int i, unsigned int j){if(j<Ntp->TauTriggerMatch->at(i).size()) return Ntp->TauTriggerMatch->at(i).at(j);return 999;}
    unsigned int NHLTTriggerObject(unsigned int i){return Ntp->HLTTrigger_objs_Eta->at(i).size();}
    TLorentzVector HLTTriggerObject_p4(unsigned int i, unsigned int j){
      TLorentzVector L(0,0,0,0); 
      if(j<Ntp->HLTTrigger_objs_Eta->at(i).size())L.SetPtEtaPhiM(Ntp->HLTTrigger_objs_Pt->at(i).at(j),Ntp->HLTTrigger_objs_Eta->at(i).at(j), Ntp->HLTTrigger_objs_Phi->at(i).at(j),0.0);
      return L;
    }
+   int          NHLTTrigger_objs(){return Ntp->HLTTrigger_objs_Pt->size();}
+   int          NHLTTrigger_objs(unsigned int i){return Ntp->HLTTrigger_objs_Pt->at(i).size();}
+   float        HLTTrigger_objs_Pt(unsigned int i, unsigned int j){return Ntp->HLTTrigger_objs_Pt->at(i).at(j);}
+   float        HLTTrigger_objs_Eta(unsigned int i, unsigned int j){return Ntp->HLTTrigger_objs_Eta->at(i).at(j);}
+   float        HLTTrigger_objs_Phi(unsigned int i, unsigned int j){return Ntp->HLTTrigger_objs_Phi->at(i).at(j);}
+   float        HLTTrigger_objs_E(unsigned int i,unsigned int j){return Ntp->HLTTrigger_objs_E->at(i).at(j);}
+   int          HLTTrigger_objs_Id(unsigned int i,unsigned int j){return Ntp->HLTTrigger_objs_Id->at(i).at(j);}
+   std::string  HLTTrigger_objs_trigger(unsigned int i){return Ntp->HLTTrigger_objs_trigger->at(i);}
 
+   // helper functions
+   float        dxy(TLorentzVector fourvector, TVector3 poca, TVector3 vtx);
+   float		dxySigned(TLorentzVector fourvector, TVector3 poca, TVector3 vtx);
+   float        dz(TLorentzVector fourvector, TVector3 poca, TVector3 vtx);
+   float        dzSigned(TLorentzVector fourvector, TVector3 poca, TVector3 vtx);
+   float        vertexSignificance(TVector3 vec, unsigned int vertex);
+   double		transverseMass(double pt1, double phi1, double pt2, double phi2){return sqrt(2 * pt1 * pt2 * (1 - cos(phi1 - phi2)));}
+   std::vector<int> sortObjects(std::vector<int> indices, std::vector<double> values);
+   std::vector<int> sortPFJetsByPt();
+   std::vector<int> sortDefaultObjectsByPt(TString objectType);
 
 };
 

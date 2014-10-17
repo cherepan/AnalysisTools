@@ -1,8 +1,7 @@
+include make.inc
 #################################################
 ### Defining Compiling variables              ###
 #################################################
-
-
 
 CXX           = g++ -Wno-deprecated
 #-m32  -Wno-deprecated
@@ -15,22 +14,9 @@ SHELL = /bin/sh
 ###                              ###
 ####################################
 
-SHAREDLIBFLAGS =-L./CommonUtils/lib -lTauNtuple \
-		-L./TauSpiner/lhapdf/lib -lLHAPDF \
-		-L./TauSpiner/tauola++/1.1.3/lib -lTauolaCxxInterface -lTauolaFortran -lTauolaTauSpinner \
-		-L./TauSpiner/hepmc/install/lib -lHepMC 
-
-SHAREDCXXFLAGS =-I./CommonUtils \
-		-I./TauSpiner/hepmc/install/include \
-		-I./TauSpiner/tauola++/1.1.3/include/Tauola/ \
-                -I./TauSpiner/tauola++/1.1.3/include/TauSpinner/ \
-		-I./TauSpiner/tauola++/1.1.3/include/ \
-		-I./TauSpiner/lhapdf/include/ \
-		-I./TauSpiner/pythia8/176/include
-
-SUBDIRS = CommonUtils/ TauSpiner/
-
-
+SHAREDLIBFLAGS =-L./CommonUtils/lib -lTauNtuple 
+SHAREDCXXFLAGS =-I./CommonUtils 
+SUBDIRS = CommonUtils/ 
 
 CXXFLAGS      = -I$(ROOTSYS)/include -c -I/include $(SHAREDCXXFLAGS) -c -I./ -c
 LDFLAGS       =  
@@ -55,20 +41,55 @@ TARGETS       =	Ntuple_Controller \
 		SkimConfig \
 		HistoConfig \
 		Example \
-		Validation \
-		Ztotautau_hadmu_ControlSample \
-		ChargedHiggs_tauplusjet \
-		ChargedHiggs_dilepontic \
-		TauSpinExample \
-                Tau_momentum_calculation \
-		TauSpinerInterface \
-		Ztomumu_ControlSample \
 		TauSolver \
-		TriggerStudy \
-		TriggerStudyMC \
-		ZDouble3prong \
-		Ztotautau_ControlSample \
-		TauLifeTime
+		TauSpinExample \
+		TauSpinerInterface \
+		ReferenceScaleFactors
+
+# now include conditional options set by flags in make.inc
+ifdef USE_TauSpinner
+	SUBDIRS += TauSpiner/
+	SHAREDLIBFLAGS +=	-L./TauSpiner/lhapdf/lib -lLHAPDF \
+				-L./TauSpiner/tauola++/1.1.3/lib -lTauolaCxxInterface -lTauolaFortran -lTauolaTauSpinner \
+				-L./TauSpiner/hepmc/install/lib -lHepMC
+        SHAREDCXXFLAGS +=	-I./TauSpiner/hepmc/install/include \
+				-I./TauSpiner/tauola++/1.1.3/include/Tauola/ \
+				-I./TauSpiner/tauola++/1.1.3/include/TauSpinner/ \
+				-I./TauSpiner/tauola++/1.1.3/include/ \
+				-I./TauSpiner/lhapdf/include/ \
+				-I./TauSpiner/pythia8/176/include/
+	DEFS += -DUSE_TauSpinner=1
+endif
+
+ifdef USE_cherepanov
+	TARGETS += Skimmer
+	TARGETS += BasicSelection
+	TARGETS += WJetCorrectionFactor
+	TARGETS += BackgroundEstimator
+	TARGETS += TauRecHelper
+	DEFS += -DUSE_cherepanov=1
+endif
+
+ifdef USE_inugent
+	TARGETS += TauLifeTime TriggerStudy TriggerStudyMC ZDouble3prong Ztotautau_ControlSample Ztomumu_ControlSample ChargedHiggs_dilepontic ChargedHiggs_tauplusjet 
+	DEFS += -DUSE_inugent=1
+endif
+
+ifdef USE_kargoll
+	TARGETS += HToTaumuTauh HToTaumuTauhSkim HToTaumuTauhBackgrounds MuTauSync OneJetBoost OneJetHigh OneJetLow VBFLoose VBFTight ZeroJetHigh ZeroJetLow Inclusive
+	DEFS += -DUSE_kargoll=1
+endif 
+
+ifdef USE_nehrkorn
+	TARGETS += ZtoEMu ZtoEMu_Skim ZtoEMu_Fakerate ZtoEMu_Wjets ZtoEMu_QCD
+	DEFS += -DUSE_nehrkorn=1
+endif
+
+ifdef USE_pistone
+        DEFS += -DUSE_pistone=1
+endif
+
+
 
 HDRS          = $(TARGETS:=.h) 		
 SRCS          = $(TARGETS:=.cxx)  Analysis.cxx
@@ -87,6 +108,10 @@ vpath %.cxx inugent
 vpath %.h inugent
 vpath %.cxx cherepanov
 vpath %.h cherepanov
+vpath %.cxx kargoll
+vpath %.h kargoll
+vpath %.cxx nehrkorn
+vpath %.h nehrkorn
 
 #	@$(LD) $(LDFLAGS) $(OBJS) $(LIBS) -o ../$(PROGRAM)
 

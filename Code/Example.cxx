@@ -94,7 +94,7 @@ void  Example::doEvent(){
   
   double wobs=1;
   double w;
-  if(!Ntp->isData()){w = Ntp->EvtWeight3D();}
+  if(!Ntp->isData()){w = Ntp->PUWeight();}
   else{w=1;}
 
 
@@ -109,7 +109,7 @@ void  Example::doEvent(){
       NTrackperVtx.at(t).Fill(Ntp->Vtx_Track_idx(i).size(),w);
       if(Ntp->isVtxGood(i))nGoodVtx++;
     }
-    NGoodVtx.at(t).Fill(nGoodVtx,w);;
+    NGoodVtx.at(t).Fill(nGoodVtx,w);
   }
 }
 

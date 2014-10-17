@@ -172,19 +172,35 @@ void SkimConfig::CheckNEvents(std::vector<int> ids, std::vector<float> nevts){
     }
   }
 
+  ofstream output;
+  output.open("DQM.tex", ios::out);
+  
+  output << "\\section{Data Quality Table}" << std::endl;
+  output << "\\begin{landscape}" << std::endl;
+  output << "\\begin{table}[t]" << std::endl;
+  output << "\\tiny " << std::endl;
+  output << "\\begin{center}" << std::endl;
+  output << "\\begin{tabular}{|p{3.0cm}|p{3.0cm}|p{3.0cm}|p{3.0cm}|p{3.0cm}|} \\hline" << endl; 
+  output << "ID & DQM Status & Events Read & Events Expected & Ratio \\\\  \\hline " << std::endl;
   for(unsigned int i=0; i<ids.size();i++){
-    if(fabs(nevts.at(i)-NEvents_noweight_sel.at(i))>0.01){
-      std::cout << "Failed " << ids.at(i) << " incorrect number of events "
-		<< "Found: " << nevts.at(i) << " Expected: " << NEvents_noweight_sel.at(i) 
-		<< " Ratio " <<   nevts.at(i)/NEvents_noweight_sel.at(i)
-		<< std::endl;
+    if(fabs(nevts.at(i)-NEvents_noweight_sel.at(i))>0.0001){
+      output << ids.at(i) << " & \\textcolor{red}{FAILED} & ";
     }
-    else if(fabs(nevts.at(i)-NEvents_noweight_sel.at(i))<0.01){
-      std::cout << "Passed " <<  ids.at(i) << " all events analysed "
-		<< "Found: " << nevts.at(i) << " Expected: " << NEvents_noweight_sel.at(i)
-		<< std::endl;
+    else{
+      output << ids.at(i) << " & \\textcolor{green}{PASSED} & ";
     }
+    output <<  nevts.at(i) << " & " << NEvents_noweight_sel.at(i) << " & " <<   nevts.at(i)/NEvents_noweight_sel.at(i) 
+	   << " \\\\  " << std::endl;
   }
+  output << " \\hline"                                      << std::endl;
+  output << "\\end{tabular}"                                << std::endl;
+  output << "\\caption[Data Quality]{Data Quality}"         << std::endl;
+  output << "\\end{center}"                                 << std::endl;
+  output << "\\end{table}"                                  << std::endl;
+  output << "\\normalsize"                                  << std::endl;
+  output << "\\end{landscape}"                              << std::endl;
+  output.close();
+
   return;
 }
 
@@ -230,28 +246,28 @@ bool SkimConfig::CovertToHistoFormat(){
     }
   }
  
-  for(unsigned int i=0;i<SkimIDs_new.size();i++){
-    for(unsigned int j=0;j<SkimIDs.size();j++){
-      if(!IDFlag.at(j)){
-	if(SkimIDs.at(j)%100==SkimIDs_new.at(i)){
-	  std::cout << "SkimConfig::CovertToHistoFormat() Found Master Decay: " << SkimIDs.at(j) << std::endl;
-	  IDFlag.at(j)=true;
-	  NEvents_new.at(i)+=NEvents.at(j);
-	  NEventsErr_new.at(i)+=sqrt(NEventsErr.at(j)*NEventsErr.at(j)+NEventsErr_new.at(i)*NEventsErr_new.at(i));
-	  NEvents_sel_new.at(i)+=NEvents_sel.at(j);
-	  NEventsErr_sel_new.at(i)+=sqrt(NEventsErr_sel.at(j)*NEventsErr_sel.at(j)+NEventsErr_sel_new.at(i)*NEventsErr_sel_new.at(i));
-	  NEvents_noweight_new.at(i)+=NEvents_noweight.at(j);
-	  NEvents_noweight_sel_new.at(i)+=NEvents_noweight_sel.at(j);
-	}
-      }
-    }
-  }
+//   for(unsigned int i=0;i<SkimIDs_new.size();i++){
+//     for(unsigned int j=0;j<SkimIDs.size();j++){
+//       if(!IDFlag.at(j)){
+// 	if(SkimIDs.at(j)%100==SkimIDs_new.at(i)){
+// 	  std::cout << "SkimConfig::CovertToHistoFormat() Found Master Decay: " << SkimIDs.at(j) << std::endl;
+// 	  IDFlag.at(j)=true;
+// 	  NEvents_new.at(i)=NEvents.at(j);
+// 	  NEventsErr_new.at(i)=sqrt(NEventsErr.at(j)*NEventsErr.at(j)+NEventsErr_new.at(i)*NEventsErr_new.at(i));
+// 	  NEvents_sel_new.at(i)=NEvents_sel.at(j);
+// 	  NEventsErr_sel_new.at(i)=sqrt(NEventsErr_sel.at(j)*NEventsErr_sel.at(j)+NEventsErr_sel_new.at(i)*NEventsErr_sel_new.at(i));
+// 	  NEvents_noweight_new.at(i)=NEvents_noweight.at(j);
+// 	  NEvents_noweight_sel_new.at(i)=NEvents_noweight_sel.at(j);
+// 	}
+//       } 
+//     }
+//   }
 
-  for(unsigned int i=0;i<SkimIDs_new.size();i++){
+   for(unsigned int i=0;i<SkimIDs_new.size();i++){
     if(SkimIDs_new.at(i)==DataMCType::Signal){
       for(unsigned int j=0;j<SkimIDs.size();j++){
-	std::cout << "SkimConfig::CovertToHistoFormat() Found Signal Match " << SkimIDs.at(j) << std::endl;
-	if(SkimIDs.at(j)==DataMCType::DY_ll_Signal){
+	if(SkimIDs.at(j)==10230533){
+	  std::cout << "SkimConfig::CovertToHistoFormat() Found Signal Match " << SkimIDs.at(j) << std::endl;
 	  IDFlag.at(j)=true;
 	  NEvents_new.at(i)=NEvents.at(j);
 	  NEventsErr_new.at(i)=NEventsErr.at(j);
@@ -264,6 +280,9 @@ bool SkimConfig::CovertToHistoFormat(){
     }
   }
 
+
+
+ 
   for(unsigned int j=0;j<SkimIDs.size();j++){
     if(!IDFlag.at(j)){
       std::cout << "SkimConfig::CovertToHistoFormat() WARNING unmatched DataMCType: " << SkimIDs.at(j) << std::endl;

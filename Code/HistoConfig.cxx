@@ -114,6 +114,16 @@ double HistoConfig::GetCrossSection(int id){
   return 0;
 }
 
+bool HistoConfig::SetCrossSection(int id, double xsec){
+	for(int i=0; i<ID.size(); i++){
+		if(ID.at(i)==id){
+			CS.at(i) = xsec;
+			return true;
+	    }
+	}
+	return false;
+}
+
 void HistoConfig::GetHistoInfo(std::vector<int> &types,std::vector<float> &CrossSectionandAcceptance,std::vector<TString> &legend,std::vector<int> &colour){
   types=ID;
   legend=HistoLegend;
@@ -143,6 +153,18 @@ std::vector<TH1D> HistoConfig::GetTH1D(TString name,TString title, int nbins, do
   std::cout << "Adding TH1D " << name << " " << title << std::endl;
   for(int i=0;i<HistoName.size();i++){
     histos.push_back(TH1D(name+HistoName.at(i),HistoLegend.at(i),nbins,min,max));
+    histos.at(i).Sumw2();
+    histos.at(i).SetXTitle(xaxis);
+    histos.at(i).SetYTitle(yaxis);
+  }
+  return histos;
+}
+
+std::vector<TH1D> HistoConfig::GetTH1D(TString name,TString title, int nbins, double* xbins, TString xaxis,TString yaxis){
+  std::vector<TH1D> histos;
+  std::cout << "Adding TH1D " << name << " " << title << std::endl;
+  for(int i=0;i<HistoName.size();i++){
+    histos.push_back(TH1D(name+HistoName.at(i),HistoLegend.at(i),nbins,xbins));
     histos.at(i).Sumw2();
     histos.at(i).SetXTitle(xaxis);
     histos.at(i).SetYTitle(yaxis);
@@ -192,4 +214,13 @@ bool HistoConfig::hasID(int id_){
 int HistoConfig::GetID(unsigned int i){
   if(ID.size()>i) return ID.at(i);
   return -999;
+}
+
+int HistoConfig::GetType(int id){
+	for(int i=0; i<ID.size(); i++){
+	    if(ID.at(i)==id){
+	    	return i;
+	    }
+	}
+	return -1;
 }

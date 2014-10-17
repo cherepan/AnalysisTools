@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <errno.h>
+#include <sstream>
 
 Selection::Selection(TString Name_, TString id_):
   Selection_Base(Name_,id_)
@@ -215,93 +216,101 @@ void  Selection::Finish(){
   if(mode==ANALYSIS)        fName+="ANALYSIS_";
   fName+=Name;
 
+  Save(fName);// Save file with unweighted events - required for combining code
+
+  std::cout << "Writing out "+Name+".root Complete" << std::endl;
+  SkimConfig SC;
+  SC.ApplySkimEfficiency(types,Npassed,Npassed_noweight);
+	for(int i=0; i<Npassed.size();i++){
+		nevents_noweight_default.push_back(Npassed_noweight.at(i).GetBinContent(1));
+	}
+
+  // For local jobs produce pdf file
+  if(runtype!=GRID){
+    Tables T(Name);
+    //Check that the correct number of events are run over and make Table
+    SC.CheckNEvents(types,nevents_noweight_default);
+    // Make Tables
+    T.MakeNEventsTable(Npassed,title);
+
+    // weight all Histograms
+    for(int i=0;i<CrossSectionandAcceptance.size();i++){
+      std::cout << i << " CrossSectionandAcceptance " << CrossSectionandAcceptance.at(i) << " " << Npassed.at(i).GetBinContent(0) << " " << Npassed_noweight.at(i).GetBinContent(0) << std::endl;
+      if(CrossSectionandAcceptance.at(i)>0) ScaleAllHistOfType(i,Lumi*CrossSectionandAcceptance.at(i)/Npassed.at(i).GetBinContent(0));
+    }
+    Save(fName+"_LumiScaled");// Save file with Lumi-scaled events - required for combining code
+
+    ///Now make the plots
+    std::cout << "Printing Plots " << std::endl;
+    system("rm EPS/*.eps");
+    Plots P;
+    P.Plot1D(Nminus1,colour,legend);
+    for(unsigned int i=0; i<Nminus1.size();i++){
+      P.Plot1DSignificance(Nminus1.at(i),true,false,colour,legend);
+      P.Plot1DSignificance(Nminus1.at(i),false,true,colour,legend);
+      P.Plot1Dsigtobkg(Nminus1.at(i),true,false,colour,legend);
+      P.Plot1Dsigtobkg(Nminus1.at(i),false,true,colour,legend);
+      P.Plot1D_DataMC_Compare(Nminus1.at(i),colour,legend);
+    }
+    P.Plot1D(Nminus0,colour,legend);
+    P.Plot1D(Nminus1dist,colour,legend);
+    P.Plot1D(Accumdist,colour,legend);
+    
+
+    for(unsigned int i=0; i<Extradist1d.size();i++){
+      P.Plot1D((*Extradist1d.at(i)),colour,legend);
+      if(Lumi>0){
+	P.Plot1DSignificance((*Extradist1d.at(i)),true,false,colour,legend);
+	P.Plot1DSignificance((*Extradist1d.at(i)),false,true,colour,legend);
+	P.Plot1Dsigtobkg((*Extradist1d.at(i)),true,false,colour,legend);
+	P.Plot1Dsigtobkg((*Extradist1d.at(i)),false,true,colour,legend);
+	P.Plot1D_DataMC_Compare((*Extradist1d.at(i)),colour,legend);
+      }
+    }
+    for(unsigned int i=0; i<Extradist2d.size();i++){
+      P.Plot2D((*Extradist2d.at(i)),colour,legend);
+    }
+    for(unsigned int i=0; i<Extradist3d.size();i++){
+      P.Plot3D((*Extradist3d.at(i)),colour,legend);
+    }
+    
+    std::cout << "Writing out "<< Name << ".tex" << std::endl;
+    T.MakeEffTable(Npassed,title,Lumi,CrossSectionandAcceptance);
+    T.AddPlots(title);
+    T.GeneratePDF();
+    std::cout << "Plots and Tables Complete"<< std::endl;
+  }
+
+}
+
+
+void Selection::Save(TString fName){
   TFile f(fName+".root","RECREATE");
   for(unsigned int i=0; i<Nminus1.size(); i++){
     for(unsigned int j=0; j<Nminus1.at(i).size();j++){
       Nminus1.at(i).at(j).Write((Nminus1.at(i).at(j)).GetName());
       Nminus0.at(i).at(j).Write((Nminus0.at(i).at(j)).GetName());
       if(distindx.at(i)){
-	Nminus1dist.at(i).at(j).Write((Nminus1dist.at(i).at(j)).GetName());
-	Accumdist.at(i).at(j).Write((Accumdist.at(i).at(j)).GetName());
+        Nminus1dist.at(i).at(j).Write((Nminus1dist.at(i).at(j)).GetName());
+        Accumdist.at(i).at(j).Write((Accumdist.at(i).at(j)).GetName());
       }
       if(i==0){
-	Npassed.at(j).Write((Npassed.at(j)).GetName());
-	Npassed_noweight.at(j).Write((Npassed_noweight.at(j)).GetName());
-	for(unsigned int i=0; i<Extradist1d.size();i++){
-	  Extradist1d.at(i)->at(j).Write((Extradist1d.at(i)->at(j)).GetName());
-	}
-	for(unsigned int i=0; i<Extradist2d.size();i++){
-	  Extradist2d.at(i)->at(j).Write((Extradist2d.at(i)->at(j)).GetName());
-	}
+        Npassed.at(j).Write((Npassed.at(j)).GetName());
+        Npassed_noweight.at(j).Write((Npassed_noweight.at(j)).GetName());
+        for(unsigned int i=0; i<Extradist1d.size();i++){
+          Extradist1d.at(i)->at(j).Write((Extradist1d.at(i)->at(j)).GetName());
+        }
+        for(unsigned int i=0; i<Extradist2d.size();i++){
+          Extradist2d.at(i)->at(j).Write((Extradist2d.at(i)->at(j)).GetName());
+        }
         for(unsigned int i=0; i<Extradist3d.size();i++){
           Extradist3d.at(i)->at(j).Write((Extradist3d.at(i)->at(j)).GetName());
         }
-
       }
     }
   }
   f.Close();
-  std::cout << "Writing out "+Name+".root Complete" << std::endl;
-  SkimConfig SC;
-  SC.ApplySkimEfficiency(types,Npassed,Npassed_noweight);
-  std::vector<float> nevents;
-  std::vector<float> nevents_noweight;
-  std::vector<float> nevents_noweight_default;
-  for(int i=0; i<Npassed.size();i++){
-    nevents.push_back(Npassed.at(i).GetBinContent(0));
-    nevents_noweight.push_back(Npassed_noweight.at(i).GetBinContent(0));
-    nevents_noweight_default.push_back(Npassed_noweight.at(i).GetBinContent(1));
-  }
-
-  if(runtype!=GRID){
-    std::cout << "Printing Plots " << std::endl;
-    for(int i=0;i<CrossSectionandAcceptance.size();i++){
-      std::cout << i << " CrossSectionandAcceptance " << CrossSectionandAcceptance.at(i) << " " << nevents.at(i) << " " << nevents_noweight.at(i) << std::endl;
-    }
-
-    ///Now make the plots
-    system("rm EPS/*.eps");
-    Plots P;
-    P.Plot1D(Nminus1,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-    for(unsigned int i=0; i<Nminus1.size();i++){
-      P.Plot1DSignificance(Nminus1.at(i),true,false,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-      P.Plot1DSignificance(Nminus1.at(i),false,true,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-      P.Plot1Dsigtobkg(Nminus1.at(i),true,false,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-      P.Plot1Dsigtobkg(Nminus1.at(i),false,true,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-      P.Plot1D_DataMC_Compare(Nminus1.at(i),Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-    }
-    P.Plot1D(Nminus0,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-    P.Plot1D(Nminus1dist,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-    P.Plot1D(Accumdist,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-    
-
-    for(unsigned int i=0; i<Extradist1d.size();i++){
-      P.Plot1D((*Extradist1d.at(i)),Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-      if(Lumi>0){
-	P.Plot1DSignificance((*Extradist1d.at(i)),true,false,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-	P.Plot1DSignificance((*Extradist1d.at(i)),false,true,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-	P.Plot1Dsigtobkg((*Extradist1d.at(i)),true,false,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-	P.Plot1Dsigtobkg((*Extradist1d.at(i)),false,true,Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-	P.Plot1D_DataMC_Compare((*Extradist1d.at(i)),Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-      }
-    }
-    for(unsigned int i=0; i<Extradist2d.size();i++){
-      P.Plot2D((*Extradist2d.at(i)),Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-    }
-    for(unsigned int i=0; i<Extradist3d.size();i++){
-      P.Plot3D((*Extradist3d.at(i)),Lumi,CrossSectionandAcceptance,nevents,colour,legend);
-    }
-
-    
-    std::cout << "Writing out "<< Name << ".tex" << std::endl;
-    Tables T(Name);
-    T.MakeEffTable(Npassed,title,Lumi,CrossSectionandAcceptance,nevents);
-    std::cout << "Plots and Tables Complete"<< std::endl;
-  }
-  //Check that the correct number of events are run over
-  SC.CheckNEvents(types,nevents_noweight_default);
 }
-
 
 bool Selection::Passed(){
   for(int i=0; i<pass.size();i++){
@@ -381,7 +390,20 @@ void Selection::EvaluateSystematics(Selection_Base* &selectionsys, double w){
   }
 }
 
-
+TString Selection::splitString(const std::string &s, char delim, std::string splitpoint){
+	/* input string is split by given delimiter.
+	 * output string is stiched back together from string fragments including the given splitpoint but no further.
+	 */
+	std::stringstream ss(s);
+	std::string item;
+	TString outstring = "";
+	while(std::getline(ss,item,delim)){
+		outstring+=item;
+		outstring+=delim;
+		if(item.find(splitpoint)!=std::string::npos) break;
+	}
+	return outstring;
+}
 
 void Selection::ResetEvent(){
   for(int i=0; i<pass.size();i++){
@@ -402,7 +424,6 @@ void Selection::ScaleAllHistOfType(unsigned int t,float w){
     }
   }
   if(Npassed.size()>t)Npassed.at(t).Scale(w);
-  if(Npassed_noweight.size()>t)Npassed_noweight.at(t).Scale(w);
   for(unsigned int k=0; k<Extradist1d.size();k++){
     if(Extradist1d.at(k)->size()>t)Extradist1d.at(k)->at(t).Scale(w);
   }

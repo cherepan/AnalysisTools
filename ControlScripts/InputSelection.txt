@@ -1,0 +1,11 @@
+Thin: False
+Skim: True
+HistoFile: InputData/CrossectionsForSelection.txt
+Analysis: BackgroundEstimator
+Analysis: WJetCorrectionFactor 
+Analysis: BasicSelection
+UncertType: default
+SkimInfo: InputData/SkimSummaryforSelection.dat
+Lumi: 19712
+PlotStyle: style2
+
